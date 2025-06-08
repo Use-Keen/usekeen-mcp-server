@@ -1,6 +1,6 @@
 {
   "name": "usekeen-mcp",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "MCP server for UseKeen package documentation search",
   "main": "dist/index.js",
   "type": "module",
