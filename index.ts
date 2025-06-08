@@ -1,15 +1,16 @@
 #!/usr/bin/env node
-// @ts-ignore
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-// @ts-ignore
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-// @ts-ignore
 import {
   CallToolRequest,
   CallToolRequestSchema,
   ListToolsRequestSchema,
   Tool,
+  ToolSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 // Add Node.js process declaration
 declare const process: {
@@ -17,72 +18,18 @@ declare const process: {
   exit: (code?: number) => never;
 };
 
-/**
- * Interface for package documentation search arguments
- * Defines the structure of arguments passed to the usekeen_package_doc_search tool
- */
-interface PackageDocSearchArgs {
-  package_name: string;
-  query?: string;
-}
+const PackageDocSearchArgsSchema = z.object({
+  package_name: z.string().describe("Name of the package or service to search documentation for (e.g. 'react', 'aws-s3', 'docker')"),
+  query: z.string().optional().describe("Search term to find specific information within the package/service documentation (e.g. 'file upload example', 'authentication methods')"),
+});
 
-/**
- * Interface for package search arguments
- * Defines the structure of arguments passed to the usekeen_package_search tool
- */
-interface PackageSearchArgs {
-  query: string;
-  max_results?: number;
-}
+const PackageSearchArgsSchema = z.object({
+  query: z.string().describe("Search query to find relevant packages (e.g. 'web framework', 'authentication', 'database orm')"),
+  max_results: z.number().min(1).max(100).default(10).optional().describe("Maximum number of packages to return (1-100, default: 10)"),
+});
 
-/**
- * Tool definition for package documentation search
- * This tool allows searching for documentation of packages and services
- */
-const packageDocSearchTool: Tool = {
-  name: "usekeen_package_doc_search",
-  description: "Search documentation of packages and services to find implementation details, examples, and specifications",
-  inputSchema: {
-    type: "object",
-    properties: {
-      package_name: {
-        type: "string",
-        description: "Name of the package or service to search documentation for (e.g. 'react', 'aws-s3', 'docker')"
-      },
-      query: {
-        type: "string",
-        description: "Search term to find specific information within the package/service documentation (e.g. 'file upload example', 'authentication methods')",
-      }
-    },
-    required: ["package_name"]
-  }
-};
-
-/**
- * Tool definition for package search
- * This tool allows searching for packages by name or description to discover relevant packages
- */
-const packageSearchTool: Tool = {
-  name: "usekeen_package_search",
-  description: "Search for packages by name or description to discover relevant packages before diving into their documentation",
-  inputSchema: {
-    type: "object",
-    properties: {
-      query: {
-        type: "string",
-        description: "Search query to find relevant packages (e.g. 'web framework', 'authentication', 'database orm')"
-      },
-      max_results: {
-        type: "number",
-        description: "Maximum number of packages to return (1-100, default: 10)",
-        minimum: 1,
-        maximum: 100,
-        default: 10
-      }
-    },
-    required: ["query"]
-  }
-};
+const ToolInputSchema = ToolSchema.shape.inputSchema;
+type ToolInput = z.infer<typeof ToolInputSchema>;
 
 /**
  * Client for interacting with the UseKeen API
@@ -202,9 +149,28 @@ async function main(): Promise<void> {
       version: "1.0.0",
     },
     {
-      capabilities: {},
+      capabilities: {
+        tools: {},
+      },
     }
   );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    return {
+      tools: [
+        {
+          name: "usekeen_package_doc_search",
+          description: "Search documentation of packages and services to find implementation details, examples, and specifications",
+          inputSchema: zodToJsonSchema(PackageDocSearchArgsSchema) as ToolInput,
+        },
+        {
+          name: "usekeen_package_search",
+          description: "Search for packages by name or description to discover relevant packages before diving into their documentation",
+          inputSchema: zodToJsonSchema(PackageSearchArgsSchema) as ToolInput,
+        },
+      ],
+    };
+  });
 
   const useKeenClient = new UseKeenClient(apiKey);
 
@@ -214,18 +180,8 @@ async function main(): Promise<void> {
     async (request: CallToolRequest) => {
       console.error("Received CallToolRequest:", JSON.stringify(request, null, 2));
       try {
-        if (!request.params.arguments) {
-          throw new Error("No arguments provided");
-        }
-
         if (request.params.name === "usekeen_package_doc_search") {
-          const args = request.params.arguments as unknown as PackageDocSearchArgs;
-          console.error("Tool arguments:", JSON.stringify(args, null, 2));
-          
-          if (!args.package_name) {
-            throw new Error("Missing required argument: package_name");
-          }
-          
+          const args = PackageDocSearchArgsSchema.parse(request.params.arguments);
           const response = await useKeenClient.searchPackageDocumentation(
             args.package_name,
             args.query
@@ -235,23 +191,10 @@ async function main(): Promise<void> {
             content: [{ type: "text", text: JSON.stringify(response) }],
           };
         } else if (request.params.name === "usekeen_package_search") {
-          const args = request.params.arguments as unknown as PackageSearchArgs;
-          console.error("Package search tool arguments:", JSON.stringify(args, null, 2));
-          
-          if (!args.query) {
-            throw new Error("Missing required argument: query");
-          }
-          
-          const maxResults = args.max_results || 10;
-          
-          // Validate max_results is within acceptable range
-          if (maxResults < 1 || maxResults > 100) {
-            throw new Error("max_results must be between 1 and 100");
-          }
-          
+          const args = PackageSearchArgsSchema.parse(request.params.arguments);
           const response = await useKeenClient.searchPackages(
             args.query,
-            maxResults
+            args.max_results
           );
           
           return {
@@ -275,14 +218,6 @@ async function main(): Promise<void> {
       }
     }
   );
-
-  // Handle tool listing
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    console.error("Received ListToolsRequest");
-    return {
-      tools: [packageDocSearchTool, packageSearchTool],
-    };
-  });
 
   const transport = new StdioServerTransport();
   console.error("Connecting server to transport...");
