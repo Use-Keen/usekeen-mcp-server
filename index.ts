@@ -1,14 +1,13 @@
 #!/usr/bin/env node
-// @ts-ignore
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-// @ts-ignore
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-// @ts-ignore
 import {
   CallToolRequest,
   CallToolRequestSchema,
   ListToolsRequestSchema,
   Tool,
+  ToolSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
@@ -29,25 +28,8 @@ const PackageSearchArgsSchema = z.object({
   max_results: z.number().min(1).max(100).default(10).optional().describe("Maximum number of packages to return (1-100, default: 10)"),
 });
 
-/**
- * Tool definition for package documentation search
- * This tool allows searching for documentation of packages and services
- */
-const packageDocSearchTool: Tool = {
-  name: "usekeen_package_doc_search",
-  description: "Search documentation of packages and services to find implementation details, examples, and specifications",
-  inputSchema: zodToJsonSchema(PackageDocSearchArgsSchema) as any,
-};
-
-/**
- * Tool definition for package search
- * This tool allows searching for packages by name or description to discover relevant packages
- */
-const packageSearchTool: Tool = {
-  name: "usekeen_package_search",
-  description: "Search for packages by name or description to discover relevant packages before diving into their documentation",
-  inputSchema: zodToJsonSchema(PackageSearchArgsSchema) as any,
-};
+const ToolInputSchema = ToolSchema.shape.inputSchema;
+type ToolInput = z.infer<typeof ToolInputSchema>;
 
 /**
  * Client for interacting with the UseKeen API
@@ -164,17 +146,31 @@ async function main(): Promise<void> {
   const server = new Server(
     {
       name: "UseKeen Documentation MCP Server",
-      version: "1.2.3",
+      version: "1.0.0",
     },
     {
       capabilities: {
-        tools: {
-          usekeen_package_doc_search: packageDocSearchTool,
-          usekeen_package_search: packageSearchTool,
-        },
+        tools: {},
       },
     }
   );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    return {
+      tools: [
+        {
+          name: "usekeen_package_doc_search",
+          description: "Search documentation of packages and services to find implementation details, examples, and specifications",
+          inputSchema: zodToJsonSchema(PackageDocSearchArgsSchema) as ToolInput,
+        },
+        {
+          name: "usekeen_package_search",
+          description: "Search for packages by name or description to discover relevant packages before diving into their documentation",
+          inputSchema: zodToJsonSchema(PackageSearchArgsSchema) as ToolInput,
+        },
+      ],
+    };
+  });
 
   const useKeenClient = new UseKeenClient(apiKey);
 
@@ -184,10 +180,6 @@ async function main(): Promise<void> {
     async (request: CallToolRequest) => {
       console.error("Received CallToolRequest:", JSON.stringify(request, null, 2));
       try {
-        if (!request.params.arguments) {
-          throw new Error("No arguments provided");
-        }
-
         if (request.params.name === "usekeen_package_doc_search") {
           const args = PackageDocSearchArgsSchema.parse(request.params.arguments);
           const response = await useKeenClient.searchPackageDocumentation(
