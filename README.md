@@ -1,38 +1,16 @@
-# UseKeen Documentation MCP Server
+# UseKeen MCP Server
 
-MCP Server for the UseKeen Package Documentation Search API, enabling Claude and other AI assistants to discover packages and search their documentation.
+MCP Server for the UseKeen API, enabling Claude and other AI assistants to search documentation.
 
 ## Tools
 
-### 1. `usekeen_package_search`
-   - **New!** Search for packages by name or description to discover relevant packages
-   - Required inputs:
-     - `query` (string): Search query to find relevant packages (e.g. 'web framework', 'authentication', 'database orm')
-   - Optional inputs:
-     - `max_results` (number): Maximum number of packages to return (1-100, default: 10)
-   - Returns: List of matching packages with metadata including names, descriptions, and versions
-
-### 2. `usekeen_package_doc_search`
+### `usekeen_package_doc_search`
    - Search documentation of packages and services to find implementation details, examples, and specifications
    - Required inputs:
      - `package_name` (string): Name of the package or service to search documentation for (e.g. 'react', 'aws-s3', 'docker')
    - Optional inputs:
      - `query` (string): Search term to find specific information within the package/service documentation (e.g. 'file upload example', 'authentication methods')
    - Returns: Documentation search results with relevant matches, URLs, and snippets
-
-## Workflow
-
-The tools work together to provide a complete package discovery and documentation search experience:
-
-1. **Discovery**: Use `usekeen_package_search` to find packages related to your needs
-2. **Deep Dive**: Use `usekeen_package_doc_search` to search within a specific package's documentation
-
-Example workflow:
-```
-1. Search for packages: usekeen_package_search(query="web framework")
-2. Find a relevant package (e.g., "express")
-3. Search its documentation: usekeen_package_doc_search(package_name="express", query="middleware")
-```
 
 ## Prerequisites
 
