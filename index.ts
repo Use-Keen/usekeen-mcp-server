@@ -20,12 +20,7 @@ declare const process: {
 
 const PackageDocSearchArgsSchema = z.object({
   package_name: z.string().describe("Name of the package or service to search documentation for (e.g. 'react', 'aws-s3', 'docker')"),
-  query: z.string().optional().describe("Search term to find specific information within the package/service documentation (e.g. 'file upload example', 'authentication methods')"),
-});
-
-const PackageSearchArgsSchema = z.object({
-  query: z.string().describe("Search query to find relevant packages (e.g. 'web framework', 'authentication', 'database orm')"),
-  max_results: z.number().min(1).max(100).default(10).optional().describe("Maximum number of packages to return (1-100, default: 10)"),
+  query: z.string().describe("Search term to find specific information within the package/service documentation (e.g. 'file upload example', 'authentication methods')"),
 });
 
 const ToolInputSchema = ToolSchema.shape.inputSchema;
@@ -90,42 +85,6 @@ class UseKeenClient {
       throw error;
     }
   }
-
-  /**
-   * Search for packages by name or description
-   * @param query - The search query to find relevant packages
-   * @param maxResults - Maximum number of packages to return (1-100, default: 10)
-   * @returns The search results from the UseKeen API
-   */
-  async searchPackages(query: string, maxResults: number = 10): Promise<any> {
-    try {
-      // Create URL with query parameters
-      const url = new URL(`${this.baseUrl}/packages/search`);
-      url.searchParams.append('api_key', this.apiKey);
-      url.searchParams.append('q', query);
-      url.searchParams.append('max_results', maxResults.toString());
-      
-      // Log the request details for debugging
-      console.error(`Package Search API Request URL: ${url.toString()}`);
-      
-      const response = await fetch(url.toString(), {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json"
-        }
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Package search API request failed: ${response.status} ${errorText}`);
-      }
-
-      return response.json();
-    } catch (error) {
-      console.error("Error calling UseKeen Package Search API:", error);
-      throw error;
-    }
-  }
 }
 
 /**
@@ -140,12 +99,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  console.error("Starting UseKeen Documentation MCP Server...");
+  console.error("Starting UseKeen MCP Server...");
   console.error(`Using API Key: ${apiKey}`);
   
   const server = new Server(
     {
-      name: "UseKeen Documentation MCP Server",
+      name: "UseKeen MCP Server",
       version: "1.0.0",
     },
     {
@@ -160,13 +119,8 @@ async function main(): Promise<void> {
       tools: [
         {
           name: "usekeen_package_doc_search",
-          description: "Search documentation of packages and services to find implementation details, examples, and specifications",
+          description: "Search documentation of packages and services to find implementation details, examples, and specifications. The user's query should be as specific as possible to get the best results.",
           inputSchema: zodToJsonSchema(PackageDocSearchArgsSchema) as ToolInput,
-        },
-        {
-          name: "usekeen_package_search",
-          description: "Search for packages by name or description to discover relevant packages before diving into their documentation",
-          inputSchema: zodToJsonSchema(PackageSearchArgsSchema) as ToolInput,
         },
       ],
     };
@@ -185,16 +139,6 @@ async function main(): Promise<void> {
           const response = await useKeenClient.searchPackageDocumentation(
             args.package_name,
             args.query
-          );
-          
-          return {
-            content: [{ type: "text", text: JSON.stringify(response) }],
-          };
-        } else if (request.params.name === "usekeen_package_search") {
-          const args = PackageSearchArgsSchema.parse(request.params.arguments);
-          const response = await useKeenClient.searchPackages(
-            args.query,
-            args.max_results
           );
           
           return {
@@ -223,7 +167,7 @@ async function main(): Promise<void> {
   console.error("Connecting server to transport...");
   await server.connect(transport);
 
-  console.error("UseKeen Documentation MCP Server running on stdio");
+  console.error("UseKeen MCP Server running on stdio");
 }
 
 main().catch((error) => {
