@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequest,
@@ -15,6 +16,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
+import { formatToolSuccess, formatToolError } from "./helpers.js";
 
 // Add Node.js process declaration
 declare const process: {
@@ -91,76 +93,7 @@ class UseKeenClient {
   }
 }
 
-// Format a safe MCP-compliant tool result from arbitrary data
-// If the payload looks like UseKeen { result: { results: [...] } },
-// map each item to a text content block. Always include structuredContent passthrough.
-function formatToolSuccess(data: unknown): { content: { type: "text"; text: string }[]; structuredContent?: unknown } {
-  try {
-    if (
-      data &&
-      typeof data === "object" &&
-      // @ts-ignore dynamic inspection
-      "result" in (data as any) &&
-      // @ts-ignore dynamic inspection
-      (data as any).result && typeof (data as any).result === "object" &&
-      // @ts-ignore dynamic inspection
-      Array.isArray((data as any).result.results)
-    ) {
-      // @ts-ignore dynamic shape
-      const results = (data as any).result.results as unknown[];
-      const content = results
-        .map((item) => {
-          // Prefer well-known fields. Use string content as-is.
-          const textCandidate =
-            typeof (item as any)?.content === "string"
-              ? (item as any).content
-              : typeof (item as any)?.text === "string"
-              ? (item as any).text
-              : undefined;
-          if (typeof textCandidate === "string" && textCandidate.trim().length > 0) {
-            return { type: "text" as const, text: textCandidate };
-          }
-          // Fallback: compact JSON of the item
-          let fallback = "";
-          try {
-            fallback = JSON.stringify(item, null, 2);
-          } catch {
-            fallback = String(item);
-          }
-          return { type: "text" as const, text: fallback };
-        });
-
-      if (content.length > 0) {
-        return { content, structuredContent: data };
-      }
-    }
-  } catch {
-    // ignore and fall back below
-  }
-
-  // Fallback: pretty print whatever we got as a single text block
-  let text: string;
-  try {
-    text = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-  } catch {
-    text = String(data);
-  }
-  return { content: [{ type: "text", text }], structuredContent: data };
-}
-
-function formatToolError(err: unknown): { content: { type: "text"; text: string }[]; isError: true } {
-  const message = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
-  const details = err instanceof Error && err.stack ? `\n\nStack:\n${err.stack}` : "";
-  return {
-    content: [
-      {
-        type: "text",
-        text: `Tool call failed: ${message}${details}`,
-      },
-    ],
-    isError: true as const,
-  };
-}
+// helper functions moved to helpers.ts
 
 /**
  * Main function to start the MCP server
@@ -175,7 +108,7 @@ async function main(): Promise<void> {
   }
 
   console.error("Starting UseKeen MCP Server...");
-  console.error(`Using API Key: ${apiKey}`);
+  console.error("Using API Key: [REDACTED]");
   
   const server = new Server(
     {
@@ -208,21 +141,21 @@ async function main(): Promise<void> {
     CallToolRequestSchema,
     async (request: CallToolRequest) => {
       console.error("Received CallToolRequest:", JSON.stringify(request, null, 2));
+      // Unknown tool is a protocol-level error per MCP spec
+      if (request.params.name !== "usekeen_package_doc_search") {
+        throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
+      }
       try {
-        if (request.params.name === "usekeen_package_doc_search") {
-          const args = PackageDocSearchArgsSchema.parse(request.params.arguments);
-          const response = await useKeenClient.searchPackageDocumentation(
-            args.package_name,
-            args.query
-          );
-          // Always return spec-compliant content blocks; include structuredContent for clients that support it
-          return formatToolSuccess(response) as unknown as CallToolResult;
-        } else {
-          throw new Error(`Unknown tool: ${request.params.name}`);
-        }
+        const args = PackageDocSearchArgsSchema.parse(request.params.arguments);
+        const response = await useKeenClient.searchPackageDocumentation(
+          args.package_name,
+          args.query
+        );
+        // Always return spec-compliant content blocks; include structuredContent for clients that support it
+        return formatToolSuccess(response) as unknown as CallToolResult;
       } catch (error) {
         console.error("Error executing tool:", error);
-        // Mark as error using the MCP-compatible flag so clients render it correctly
+        // For tool-level failures, return content + isError per MCP
         return formatToolError(error) as unknown as CallToolResult;
       }
     }
