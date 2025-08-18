@@ -6,6 +6,10 @@ import {
   CallToolRequest,
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  // Types below are only for stronger return typing
+  // and do not affect runtime behavior
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  CallToolResult,
   Tool,
   ToolSchema,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -87,6 +91,75 @@ class UseKeenClient {
   }
 }
 
+// Format a safe MCP-compliant tool result from arbitrary data
+function formatToolSuccess(data: unknown): { content: { type: "text"; text: string }[]; structuredContent?: unknown } {
+  // If data appears to already be MCP content blocks, preserve it safely
+  // Otherwise, stringify in a readable form
+  const asText = (value: unknown) => {
+    try {
+      return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  };
+
+  // Normalize a few common non-spec shapes often seen from HTTP APIs
+  // e.g. { result: { results: [...] } } or { results: [...] }
+  let primary: unknown = data;
+  // @ts-ignore - dynamic inspection of unknown
+  if (data && typeof data === "object" && "result" in (data as any)) {
+    // @ts-ignore - dynamic
+    primary = (data as any).result;
+  }
+  // @ts-ignore - dynamic inspection of unknown
+  if (primary && typeof primary === "object" && "results" in (primary as any)) {
+    // @ts-ignore - dynamic
+    const results = (primary as any).results;
+    if (Array.isArray(results)) {
+      const lines: string[] = [];
+      lines.push(`Found ${results.length} result(s). Showing up to 5:`);
+      for (const [i, item] of results.slice(0, 5).entries()) {
+        // Heuristic for common fields
+        const title = typeof item?.title === "string" ? item.title : undefined;
+        const url = typeof item?.url === "string" ? item.url : undefined;
+        const summary = typeof item?.description === "string"
+          ? item.description
+          : typeof item?.snippet === "string"
+          ? item.snippet
+          : undefined;
+        const header = title ?? url ?? `Result #${i + 1}`;
+        lines.push(`- ${header}`);
+        if (url) lines.push(`  ${url}`);
+        if (summary) lines.push(`  ${summary}`);
+      }
+      const text = lines.join("\n");
+      return {
+        content: [{ type: "text", text }],
+        structuredContent: data,
+      };
+    }
+  }
+
+  return {
+    content: [{ type: "text", text: asText(data) }],
+    structuredContent: data,
+  };
+}
+
+function formatToolError(err: unknown): { content: { type: "text"; text: string }[]; isError: true } {
+  const message = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
+  const details = err instanceof Error && err.stack ? `\n\nStack:\n${err.stack}` : "";
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Tool call failed: ${message}${details}`,
+      },
+    ],
+    isError: true as const,
+  };
+}
+
 /**
  * Main function to start the MCP server
  * Sets up the server, registers request handlers, and connects to the transport
@@ -105,7 +178,7 @@ async function main(): Promise<void> {
   const server = new Server(
     {
       name: "UseKeen MCP Server",
-      version: "1.0.0",
+      version: "1.3.1",
     },
     {
       capabilities: {
@@ -140,25 +213,15 @@ async function main(): Promise<void> {
             args.package_name,
             args.query
           );
-          
-          return {
-            content: [{ type: "text", text: JSON.stringify(response) }],
-          };
+          // Always return spec-compliant content blocks; include structuredContent for clients that support it
+          return formatToolSuccess(response) as unknown as CallToolResult;
         } else {
           throw new Error(`Unknown tool: ${request.params.name}`);
         }
       } catch (error) {
         console.error("Error executing tool:", error);
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                error: error instanceof Error ? error.message : String(error),
-              }),
-            },
-          ],
-        };
+        // Mark as error using the MCP-compatible flag so clients render it correctly
+        return formatToolError(error) as unknown as CallToolResult;
       }
     }
   );

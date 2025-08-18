@@ -229,6 +229,10 @@ If you encounter errors, verify that:
 2. You have an active internet connection to reach the UseKeen API
 3. The UseKeen service is currently available
 
+#### MCP result shape errors
+
+- The server always returns MCP-compliant tool results as `result.content` (array of content blocks). Some clients display a generic error if a custom object is returned instead of `content`. This server normalizes API responses and also sets `isError: true` for failures so clients render them correctly. If integrating new tools, ensure they return `{ content: [{ type: "text", text: "..." }] }` and never wrap results under custom keys like `{ result: { results: [...] } }`.
+
 ## Build
 
 Docker build:
