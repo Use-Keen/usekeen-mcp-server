@@ -2,6 +2,10 @@
 
 MCP Server for the UseKeen API, enabling Claude and other AI assistants to search documentation.
 
+<a href="https://glama.ai/mcp/servers/@Use-Keen/usekeen-mcp-server">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@Use-Keen/usekeen-mcp-server/badge" alt="UseKeen Documentation Server MCP server" />
+</a>
+
 ## Tools
 
 ### `usekeen_package_doc_search`
